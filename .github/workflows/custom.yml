@@ -1,0 +1,90 @@
+on:
+  workflow_dispatch:
+  push: # Push a tag to build and create a draft release
+    tags:
+      - "*"
+
+name: custom
+jobs:
+  linux:
+    name: Create vips binary (Linux)
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        include:
+          - os: ubuntu-24.04
+            arch: x64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          set -e
+          docker build -t vips-dev-linux platforms/linux-${{ matrix.arch }}
+          docker run --rm -e VERSION_VIPS=8.16.0 -e VERSION_LATEST_REQUIRED=false -v $(pwd):/packaging vips-dev-linux /packaging/build/lin.sh
+          cp vips vips-${{ matrix.arch }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vips-${{ matrix.arch }}
+          path: vips-${{ matrix.arch }}
+
+      - name: Create a draft GitHub release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: vips-${{ matrix.arch }}
+          draft: true
+          allowUpdates: true
+          updateOnlyUnreleased: true
+
+  windows:
+    name: Create vips binary (Windows)
+    runs-on: ubuntu-24.04
+
+    strategy:
+      # This build takes LOOONG. Currently there is no binary packages for mxe
+      # that work with build-win64-mxe, and building the complier itself takes
+      # multiple hours. Even upstream build-win64-mxe doesn't use GitHub
+      # actions, they seem to run the build elsewhere and then upload binaries.
+      #
+      # We'd like to run on GitHub actions though, so we use a custom fork with
+      # trimmed deps, and run both builds in parallel runners to reduce the risk
+      # of timeouts.
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/ente-io/build-win64-mxe
+          cd build-win64-mxe
+          docker build -t libvips-build-win-mxe container
+          docker run --rm -v $(pwd)/build:/data --entrypoint /bin/bash libvips-build-win-mxe /data/custom.sh ${{ matrix.arch }}
+          cp build/vips.exe ../vips-${{ matrix.arch }}.exe
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vips-${{ matrix.arch }}.exe
+          path: vips-${{ matrix.arch }}.exe
+
+      - name: Create a draft GitHub release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: vips-${{ matrix.arch }}.exe
+          draft: true
+          allowUpdates: true
+          updateOnlyUnreleased: true

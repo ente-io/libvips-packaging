@@ -1,7 +1,8 @@
 name: Build Release
 on:
-  - push
-  - pull_request
+  - workflow_dispatch
+  # - push
+  # - pull_request
 permissions: {}
 jobs:
   create-release:
